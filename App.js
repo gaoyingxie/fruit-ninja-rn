@@ -1,22 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, Dimensions, PanResponder, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { Line, Defs, LinearGradient, Stop } from 'react-native-svg';
+import Svg, { Line, Defs, LinearGradient, Stop, Path } from 'react-native-svg';
 
 const { width, height } = Dimensions.get('window');
 const FRUIT_EMOJIS = ['🍎', '🍊', '🍋', '🍉', '🍇', '🥝', '🍓', '🍑'];
-
-// 水果对应的切开两半的 emoji
-const SLICED_FRUITS = {
-  '🍎': ['🍎', '🍎'], // 苹果切成两半
-  '🍊': ['🍊', '🍊'],
-  '🍋': ['🍋', '🍋'],
-  '🍉': ['🍉', '🍉'],
-  '🍇': ['🍇', '🍇'],
-  '🥝': ['🥝', '🥝'],
-  '🍓': ['🍓', '🍓'],
-  '🍑': ['🍑', '🍑'],
-};
 
 export default function App() {
   const [score, setScore] = useState(0);
@@ -44,23 +32,27 @@ export default function App() {
       vRotation: (Math.random() - 0.5) * 10,
       state: 'whole', // 'whole', 'slicing', 'sliced'
       sliceTime: 0,
+      sliceAngle: Math.random() * Math.PI, // 随机切开角度
     };
 
     setFruits(prev => [...prev, newFruit]);
   }, []);
 
   // 生成粒子效果
-  const spawnParticles = useCallback((x, y) => {
+  const spawnParticles = useCallback((x, y, emoji) => {
     const newParticles = [];
-    for (let i = 0; i < 8; i++) {
+    // 果汁粒子
+    for (let i = 0; i < 12; i++) {
       newParticles.push({
         id: particleIdRef.current++,
         x,
         y,
-        vx: (Math.random() - 0.5) * 10,
-        vy: (Math.random() - 0.5) * 10,
+        vx: (Math.random() - 0.5) * 15,
+        vy: (Math.random() - 0.5) * 15,
         life: 1,
-        color: `hsl(${Math.random() * 60 + 30}, 100%, 50%)`,
+        type: 'juice',
+        color: `hsl(${Math.random() * 60 + 10}, 100%, 60%)`,
+        size: Math.random() * 6 + 3,
       });
     }
     setParticles(prev => [...prev, ...newParticles]);
@@ -88,7 +80,16 @@ export default function App() {
               return {
                 ...fruit,
                 sliceTime: newTime,
-                state: newTime > 30 ? 'sliced' : 'slicing',
+                state: newTime > 40 ? 'sliced' : 'slicing',
+                // 两半分别向外飞
+                leftX: fruit.leftX + fruit.leftVx * dt,
+                rightX: fruit.rightX + fruit.rightVx * dt,
+                leftY: fruit.leftY + fruit.leftVy * dt,
+                rightY: fruit.rightY + fruit.rightVy * dt,
+                leftVy: fruit.leftVy + 0.5 * dt,
+                rightVy: fruit.rightVy + 0.5 * dt,
+                leftRot: (fruit.leftRot || 0) - 5 * dt,
+                rightRot: (fruit.rightRot || 0) + 5 * dt,
               };
             }
             
@@ -112,7 +113,14 @@ export default function App() {
               rotation: fruit.rotation + fruit.vRotation * dt,
             };
           })
-          .filter(fruit => fruit.y < height + 100 && fruit.state !== 'sliced');
+          .filter(fruit => {
+            if (fruit.state === 'sliced') return false;
+            if (fruit.state === 'slicing') {
+              // 切开的一半飞出屏幕才算完成
+              return fruit.leftY < height + 100 || fruit.rightY < height + 100;
+            }
+            return fruit.y < height + 100;
+          });
       });
       
       // 更新粒子
@@ -122,8 +130,8 @@ export default function App() {
             ...p,
             x: p.x + p.vx * dt,
             y: p.y + p.vy * dt,
-            vy: p.vy + 0.5 * dt,
-            life: p.life - 0.02 * dt,
+            vy: p.vy + 0.3 * dt,
+            life: p.life - 0.015 * dt,
           }))
           .filter(p => p.life > 0)
       );
@@ -141,26 +149,46 @@ export default function App() {
     };
   }, [spawnFruit]);
 
-  // 切水果
-  const sliceFruit = useCallback((fruitId, touchX, touchY) => {
-    setFruits(prev => prev.map(fruit => {
-      if (fruit.id === fruitId && fruit.state === 'whole') {
-        setScore(s => s + 10);
-        spawnParticles(fruit.x, fruit.y);
-        return { 
-          ...fruit, 
-          state: 'slicing',
-          sliceTime: 0,
-          leftX: fruit.x - 20,
-          rightX: fruit.x + 20,
-          leftVy: fruit.vy - 3,
-          rightVy: fruit.vy + 2,
-          leftVx: fruit.vx - 5,
-          rightVx: fruit.vx + 5,
-        };
-      }
-      return fruit;
-    }));
+  // 检查切中
+  const checkSlice = useCallback((touchX, touchY) => {
+    setFruits(prev => {
+      let hit = false;
+      return prev.map(fruit => {
+        if (fruit.state !== 'whole' || hit) return fruit;
+        
+        const dist = Math.sqrt((touchX - fruit.x) ** 2 + (touchY - fruit.y) ** 2);
+        if (dist < 50) {
+          hit = true;
+          setScore(s => s + 10);
+          spawnParticles(fruit.x, fruit.y, fruit.emoji);
+          
+          // 计算切开角度（根据滑动方向）
+          const sliceAngle = Math.random() * Math.PI;
+          const leftDir = sliceAngle - Math.PI / 2;
+          const rightDir = sliceAngle + Math.PI / 2;
+          
+          return { 
+            ...fruit, 
+            state: 'slicing',
+            sliceTime: 0,
+            sliceAngle,
+            // 左半部分
+            leftX: fruit.x - 5,
+            leftY: fruit.y,
+            leftVx: Math.cos(leftDir) * 8 + fruit.vx * 0.5,
+            leftVy: Math.sin(leftDir) * 8 + fruit.vy * 0.5 - 3,
+            leftRot: -10,
+            // 右半部分
+            rightX: fruit.x + 5,
+            rightY: fruit.y,
+            rightVx: Math.cos(rightDir) * 8 + fruit.vx * 0.5,
+            rightVy: Math.sin(rightDir) * 8 + fruit.vy * 0.5 - 3,
+            rightRot: 10,
+          };
+        }
+        return fruit;
+      });
+    });
   }, [spawnParticles]);
 
   // 手势处理
@@ -185,39 +213,10 @@ export default function App() {
         checkSlice(moveX, moveY);
       },
       onPanResponderRelease: () => {
-        setTimeout(() => setSlashLine(null), 200);
+        setTimeout(() => setSlashLine(null), 150);
       },
     })
   ).current;
-
-  // 检查切中
-  const checkSlice = useCallback((touchX, touchY) => {
-    setFruits(prev => {
-      let hit = false;
-      return prev.map(fruit => {
-        if (fruit.state !== 'whole' || hit) return fruit;
-        
-        const dist = Math.sqrt((touchX - fruit.x) ** 2 + (touchY - fruit.y) ** 2);
-        if (dist < 60) {
-          hit = true;
-          setScore(s => s + 10);
-          spawnParticles(fruit.x, fruit.y);
-          return { 
-            ...fruit, 
-            state: 'slicing',
-            sliceTime: 0,
-            leftX: fruit.x - 20,
-            rightX: fruit.x + 20,
-            leftVy: fruit.vy - 3,
-            rightVy: fruit.vy + 2,
-            leftVx: fruit.vx - 5,
-            rightVx: fruit.vx + 5,
-          };
-        }
-        return fruit;
-      });
-    });
-  }, [spawnParticles]);
 
   const resetGame = () => {
     setScore(0);
@@ -227,24 +226,54 @@ export default function App() {
     particleIdRef.current = 0;
   };
 
-  // 渲染水果（切开效果）
+  // 渲染水果（裂开效果）
   const renderFruit = (fruit) => {
     if (fruit.state === 'slicing') {
-      const progress = fruit.sliceTime / 30;
-      const leftX = fruit.leftX + fruit.leftVx * progress * 5;
-      const rightX = fruit.rightX + fruit.rightVx * progress * 5;
-      const leftY = fruit.y + fruit.leftVy * progress * 5;
-      const rightY = fruit.y + fruit.rightVy * progress * 5;
+      const progress = Math.min(fruit.sliceTime / 40, 1);
       
       return (
         <>
-          <View style={[styles.fruitHalf, { left: leftX - 30, top: leftY - 30 }]}>
-            <Text style={[styles.fruitEmoji, { transform: [{ rotate: '-15deg' }] }]}>
+          {/* 左半部分 - 使用 clip 只显示左边 */}
+          <View 
+            style={[
+              styles.fruitHalf, 
+              { 
+                left: fruit.leftX - 30, 
+                top: fruit.leftY - 30,
+                overflow: 'hidden',
+                width: 30,
+              }
+            ]}
+          >
+            <Text style={[
+              styles.fruitEmoji, 
+              { 
+                transform: [{ rotate: `${fruit.leftRot}deg` }],
+                marginLeft: 0,
+              }
+            ]}>
               {fruit.emoji}
             </Text>
           </View>
-          <View style={[styles.fruitHalf, { left: rightX - 30, top: rightY - 30 }]}>
-            <Text style={[styles.fruitEmoji, { transform: [{ rotate: '15deg' }] }]}>
+          {/* 右半部分 - 使用 clip 只显示右边 */}
+          <View 
+            style={[
+              styles.fruitHalf, 
+              { 
+                left: fruit.rightX, 
+                top: fruit.rightY - 30,
+                overflow: 'hidden',
+                width: 30,
+              }
+            ]}
+          >
+            <Text style={[
+              styles.fruitEmoji, 
+              { 
+                transform: [{ rotate: `${fruit.rightRot}deg` }],
+                marginLeft: -30,
+              }
+            ]}>
               {fruit.emoji}
             </Text>
           </View>
@@ -299,8 +328,11 @@ export default function App() {
           style={[
             styles.particle,
             {
-              left: p.x,
-              top: p.y,
+              left: p.x - p.size/2,
+              top: p.y - p.size/2,
+              width: p.size,
+              height: p.size,
+              borderRadius: p.size/2,
               backgroundColor: p.color,
               opacity: p.life,
               transform: [{ scale: p.life }],
@@ -309,7 +341,7 @@ export default function App() {
         />
       ))}
 
-      {/* 刀光效果 - 带渐变 */}
+      {/* 刀光效果 */}
       {slashLine && (
         <Svg style={styles.slash} pointerEvents="none">
           <Defs>
@@ -324,7 +356,6 @@ export default function App() {
               <Stop offset="100%" stopColor="rgba(200,100,255,0.5)" />
             </LinearGradient>
           </Defs>
-          {/* 外发光 */}
           <Line
             x1={slashLine.x1}
             y1={slashLine.y1}
@@ -334,7 +365,6 @@ export default function App() {
             strokeWidth="12"
             strokeLinecap="round"
           />
-          {/* 核心刀光 */}
           <Line
             x1={slashLine.x1}
             y1={slashLine.y1}
@@ -344,7 +374,6 @@ export default function App() {
             strokeWidth="4"
             strokeLinecap="round"
           />
-          {/* 白色核心 */}
           <Line
             x1={slashLine.x1}
             y1={slashLine.y1}
@@ -409,21 +438,16 @@ const styles = StyleSheet.create({
   },
   fruitHalf: {
     position: 'absolute',
-    width: 60,
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
   },
   fruitEmoji: {
     fontSize: 50,
+    lineHeight: 60,
   },
   particle: {
     position: 'absolute',
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginLeft: -4,
-    marginTop: -4,
   },
   slash: {
     position: 'absolute',
