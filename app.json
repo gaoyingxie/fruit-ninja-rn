@@ -1,0 +1,29 @@
+{
+  "expo": {
+    "name": "高总水果忍者",
+    "slug": "fruit-ninja-rn",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "resizeMode": "contain",
+      "backgroundColor": "#1a1a2e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.gaozong.fruitninja"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#1a1a2e"
+      },
+      "package": "com.gaozong.fruitninja"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}
