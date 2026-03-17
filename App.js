@@ -15,44 +15,63 @@ export default function App() {
   const particleIdRef = useRef(0);
   const animationRef = useRef(null);
 
-  // 生成水果
+  // 生成水果 - 更刺激更多
   const spawnFruit = useCallback(() => {
-    const id = fruitIdRef.current++;
-    const emoji = FRUIT_EMOJIS[Math.floor(Math.random() * FRUIT_EMOJIS.length)];
-    const startX = Math.random() * (width - 100) + 50;
+    // 随机生成 1-3 个水果，增加密度
+    const count = Math.random() > 0.7 ? 2 : 1;
     
-    const newFruit = {
-      id,
-      emoji,
-      x: startX,
-      y: height + 50,
-      vx: (Math.random() - 0.5) * 4,
-      vy: -Math.random() * 12 - 10,
-      rotation: 0,
-      vRotation: (Math.random() - 0.5) * 10,
-      state: 'whole', // 'whole', 'slicing', 'sliced'
-      sliceTime: 0,
-      sliceAngle: Math.random() * Math.PI, // 随机切开角度
-    };
+    for (let i = 0; i < count; i++) {
+      const id = fruitIdRef.current++;
+      const emoji = FRUIT_EMOJIS[Math.floor(Math.random() * FRUIT_EMOJIS.length)];
+      const startX = Math.random() * (width - 100) + 50;
+      
+      const newFruit = {
+        id,
+        emoji,
+        x: startX,
+        y: height + 50,
+        vx: (Math.random() - 0.5) * 6, // 速度更快
+        vy: -Math.random() * 15 - 12, // 抛得更高
+        rotation: 0,
+        vRotation: (Math.random() - 0.5) * 15, // 旋转更快
+        state: 'whole',
+        sliceTime: 0,
+        sliceAngle: Math.random() * Math.PI,
+      };
 
-    setFruits(prev => [...prev, newFruit]);
+      setFruits(prev => [...prev, newFruit]);
+    }
   }, []);
 
-  // 生成粒子效果
+  // 生成粒子效果 - 更多更炫
   const spawnParticles = useCallback((x, y, emoji) => {
     const newParticles = [];
-    // 果汁粒子
-    for (let i = 0; i < 12; i++) {
+    // 果汁粒子 - 更多
+    for (let i = 0; i < 20; i++) {
       newParticles.push({
         id: particleIdRef.current++,
         x,
         y,
-        vx: (Math.random() - 0.5) * 15,
-        vy: (Math.random() - 0.5) * 15,
+        vx: (Math.random() - 0.5) * 20,
+        vy: (Math.random() - 0.5) * 20,
         life: 1,
         type: 'juice',
-        color: `hsl(${Math.random() * 60 + 10}, 100%, 60%)`,
-        size: Math.random() * 6 + 3,
+        color: `hsl(${Math.random() * 80 + 10}, 100%, 60%)`,
+        size: Math.random() * 8 + 4,
+      });
+    }
+    // 添加闪光粒子
+    for (let i = 0; i < 8; i++) {
+      newParticles.push({
+        id: particleIdRef.current++,
+        x,
+        y,
+        vx: (Math.random() - 0.5) * 25,
+        vy: (Math.random() - 0.5) * 25,
+        life: 1,
+        type: 'sparkle',
+        color: '#fff',
+        size: Math.random() * 4 + 2,
       });
     }
     setParticles(prev => [...prev, ...newParticles]);
@@ -60,7 +79,7 @@ export default function App() {
 
   // 游戏循环
   useEffect(() => {
-    const spawnInterval = setInterval(spawnFruit, 1000);
+    const spawnInterval = setInterval(spawnFruit, 600); // 生成更快
     
     let lastTime = Date.now();
     const gameLoop = () => {
