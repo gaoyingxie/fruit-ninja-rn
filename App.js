@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { StyleSheet, View, Text, Dimensions, Animated, PanResponder, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-import Svg, { Line, Circle } from 'react-native-svg';
+import Svg, { Line } from 'react-native-svg';
 
 const { width, height } = Dimensions.get('window');
 const FRUIT_EMOJIS = ['🍎', '🍊', '🍋', '🍉', '🍇', '🥝', '🍓', '🍑'];
@@ -11,7 +11,7 @@ export default function App() {
   const [fruits, setFruits] = useState([]);
   const [slashLine, setSlashLine] = useState(null);
   const fruitIdRef = useRef(0);
-  const gameLoopRef = useRef(null);
+  const animationRef = useRef(null);
 
   // 生成水果
   const spawnFruit = useCallback(() => {
@@ -22,13 +22,12 @@ export default function App() {
     const newFruit = {
       id,
       emoji,
-      x: new Animated.Value(startX),
-      y: new Animated.Value(height + 50),
+      x: startX,
+      y: height + 50,
       vx: (Math.random() - 0.5) * 4,
-      vy: -Math.random() * 10 - 12,
-      rotation: new Animated.Value(0),
+      vy: -Math.random() * 12 - 10,
+      rotation: 0,
       vRotation: (Math.random() - 0.5) * 10,
-      scale: new Animated.Value(1),
       sliced: false,
     };
 
@@ -37,96 +36,105 @@ export default function App() {
 
   // 游戏循环
   useEffect(() => {
-    const spawnInterval = setInterval(spawnFruit, 1200);
+    const spawnInterval = setInterval(spawnFruit, 1000);
     
-    gameLoopRef.current = setInterval(() => {
+    let lastTime = Date.now();
+    const gameLoop = () => {
+      const now = Date.now();
+      const dt = (now - lastTime) / 16; // 标准化到 60fps
+      lastTime = now;
+      
       setFruits(prev => {
-        return prev.map(fruit => {
-          // 更新位置
-          const currentY = fruit.y.__getValue ? fruit.y.__getValue() : height + 50;
-          const currentX = fruit.x.__getValue ? fruit.x.__getValue() : width / 2;
-          
-          let newVy = fruit.vy + 0.3; // 重力
-          let newVx = fruit.vx;
-          let newY = currentY + newVy;
-          let newX = currentX + newVx;
-          
-          // 边界反弹
-          if (newX < 30 || newX > width - 30) {
-            newVx = -newVx * 0.8;
-            newX = Math.max(30, Math.min(width - 30, newX));
-          }
+        return prev
+          .map(fruit => {
+            if (fruit.sliced) return fruit;
+            
+            // 更新位置
+            let newVy = fruit.vy + 0.4 * dt; // 重力
+            let newVx = fruit.vx;
+            let newY = fruit.y + fruit.vy * dt;
+            let newX = fruit.x + fruit.vx * dt;
+            
+            // 边界反弹
+            if (newX < 30 || newX > width - 30) {
+              newVx = -newVx * 0.8;
+              newX = Math.max(30, Math.min(width - 30, newX));
+            }
 
-          fruit.y.setValue(newY);
-          fruit.x.setValue(newX);
-          fruit.vy = newVy;
-          fruit.vx = newVx;
-
-          // 旋转
-          const currentRot = fruit.rotation.__getValue ? fruit.rotation.__getValue() : 0;
-          fruit.rotation.setValue(currentRot + fruit.vRotation);
-
-          return fruit;
-        }).filter(fruit => {
-          const y = fruit.y.__getValue ? fruit.y.__getValue() : 0;
-          return y < height + 100 && !fruit.sliced;
-        });
+            return {
+              ...fruit,
+              x: newX,
+              y: newY,
+              vx: newVx,
+              vy: newVy,
+              rotation: fruit.rotation + fruit.vRotation * dt,
+            };
+          })
+          .filter(fruit => fruit.y < height + 100 && !fruit.sliced);
       });
-    }, 16);
+      
+      animationRef.current = requestAnimationFrame(gameLoop);
+    };
+    
+    animationRef.current = requestAnimationFrame(gameLoop);
 
     return () => {
       clearInterval(spawnInterval);
-      clearInterval(gameLoopRef.current);
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
     };
   }, [spawnFruit]);
 
   // 切水果
-  const sliceFruit = (fruitId) => {
+  const sliceFruit = useCallback((fruitId) => {
     setFruits(prev => prev.map(fruit => {
       if (fruit.id === fruitId && !fruit.sliced) {
         setScore(s => s + 10);
-        // 切中动画
-        Animated.sequence([
-          Animated.timing(fruit.scale, {
-            toValue: 1.5,
-            duration: 100,
-            useNativeDriver: true,
-          }),
-          Animated.timing(fruit.scale, {
-            toValue: 0,
-            duration: 200,
-            useNativeDriver: true,
-          }),
-        ]).start();
         return { ...fruit, sliced: true };
       }
       return fruit;
     }));
-  };
+  }, []);
 
   // 手势处理 - 滑动切水果
   const panResponder = useRef(
     PanResponder.create({
       onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (_, gesture) => {
+        setSlashLine({ x1: gesture.x0, y1: gesture.y0, x2: gesture.x0, y2: gesture.y0 });
+        checkSlice(gesture.x0, gesture.y0);
+      },
       onPanResponderMove: (_, gesture) => {
         const { moveX, moveY } = gesture;
-        setSlashLine({ x1: moveX - gesture.dx, y1: moveY - gesture.dy, x2: moveX, y2: moveY });
-        
-        // 检查是否切中水果
-        fruits.forEach(fruit => {
-          const fx = fruit.x.__getValue ? fruit.x.__getValue() : 0;
-          const fy = fruit.y.__getValue ? fruit.y.__getValue() : 0;
-          const dist = Math.sqrt((moveX - fx) ** 2 + (moveY - fy) ** 2);
-          if (dist < 50) {
-            sliceFruit(fruit.id);
-          }
-        });
+        setSlashLine({ x1: gesture.x0, y1: gesture.y0, x2: moveX, y2: moveY });
+        checkSlice(moveX, moveY);
       },
       onPanResponderRelease: () => {
         setSlashLine(null);
       },
     })
   ).current;
+
+  // 检查切中
+  const checkSlice = useCallback((touchX, touchY) => {
+    setFruits(prev => {
+      let hit = false;
+      const updated = prev.map(fruit => {
+        if (fruit.sliced || hit) return fruit;
+        
+        // 计算距离
+        const dist = Math.sqrt((touchX - fruit.x) ** 2 + (touchY - fruit.y) ** 2);
+        if (dist < 60) {
+          hit = true;
+          setScore(s => s + 10);
+          return { ...fruit, sliced: true };
+        }
+        return fruit;
+      });
+      return updated;
+    });
+  }, []);
 
   const resetGame = () => {
     setScore(0);
@@ -153,37 +161,32 @@ export default function App() {
 
       {/* 水果 */}
       {fruits.map(fruit => (
-        <Animated.View
+        <View
           key={fruit.id}
           style={[
             styles.fruit,
             {
-              transform: [
-                { translateX: fruit.x },
-                { translateY: fruit.y },
-                { rotate: fruit.rotation.interpolate({
-                  inputRange: [0, 360],
-                  outputRange: ['0deg', '360deg']
-                })},
-                { scale: fruit.scale }
-              ],
+              left: fruit.x - 30,
+              top: fruit.y - 30,
+              transform: [{ rotate: `${fruit.rotation}deg` }],
+              opacity: fruit.sliced ? 0 : 1,
             },
           ]}
         >
           <Text style={styles.fruitEmoji}>{fruit.emoji}</Text>
-        </Animated.View>
+        </View>
       ))}
 
       {/* 刀光效果 */}
       {slashLine && (
-        <Svg style={styles.slash}>
+        <Svg style={styles.slash} pointerEvents="none">
           <Line
             x1={slashLine.x1}
             y1={slashLine.y1}
             x2={slashLine.x2}
             y2={slashLine.y2}
-            stroke="white"
-            strokeWidth="3"
+            stroke="rgba(255,255,255,0.8)"
+            strokeWidth="4"
             strokeLinecap="round"
           />
         </Svg>
@@ -238,8 +241,6 @@ const styles = StyleSheet.create({
     height: 60,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: -30,
-    marginTop: -30,
   },
   fruitEmoji: {
     fontSize: 50,
